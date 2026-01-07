@@ -21,6 +21,7 @@ export interface UserSettings {
   facilityType: string[];
   guides: string[];
   googleSheetsUrl?: string; // Webhook URL (POST target)
+  googleDocsUrl?: string;   // Google Docs Webhook URL
   googleSpreadsheetUrl?: string; // View URL (Link target)
 }
 

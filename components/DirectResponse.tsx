@@ -11,6 +11,9 @@ const OPTIONS = {
   accommodation: ['당일', '1박', '2박', '3박', '기타(직접 입력)']
 };
 
+// 지정된 구글 문서 URL
+const TARGET_DOC_URL = 'https://docs.google.com/document/d/1I6aWTe9m0PrrB20XlQ3Dtl5Q7CnnSC9yLiZkga8Xa-g/edit?tab=t.0';
+
 interface DirectResponseProps {
   onSaveLog: (log: InquiryLog) => void;
   userSettings: UserSettings;
@@ -31,7 +34,7 @@ export const DirectResponse: React.FC<DirectResponseProps> = ({ onSaveLog, userS
     specialRequests: '' 
   });
   const [isSaved, setIsSaved] = useState(false);
-  const [lastSavedLog, setLastSavedLog] = useState<InquiryLog | null>(null);
+  const [docSyncStatus, setDocSyncStatus] = useState<'idle' | 'copying' | 'done'>('idle');
   const [isGuideModalOpen, setIsGuideModalOpen] = useState(false);
   const [newGuideText, setNewGuideText] = useState('');
 
@@ -52,45 +55,47 @@ export const DirectResponse: React.FC<DirectResponseProps> = ({ onSaveLog, userS
     });
   };
 
-  const downloadAsTxt = (log: InquiryLog) => {
+  const syncToGoogleDocs = async () => {
+    setDocSyncStatus('copying');
     const accLabel = selections.accommodation === '기타(직접 입력)' ? selections.customAccommodation : selections.accommodation;
-    const content = `
+    
+    // 브리핑 내용을 포맷팅된 텍스트로 생성
+    const reportContent = `
 [StayAI 상담 기록 보고서]
-----------------------------------
-상담 일시: ${log.timestamp}
-고객 번호: ${log.phoneNumber || '010-****-****'}
-단체 명칭: ${selections.orgName || '미지정'}
-방문 일자: ${selections.visitDate || '미정'}
-----------------------------------
-상담 상세 내용:
-- 방문 대상: ${log.details.target || '미지정'}
-- 인원 규모: ${selections.count || '미지정'}
-- 숙박 일정: ${accLabel || '미지정'}
-- 활동 유형: ${selections.activities.join(', ') || '미지정'}
-- 식사 옵션: ${selections.meals.join(', ') || '미지정'}
-----------------------------------
-고객 요청사항:
-${selections.specialRequests || '없음'}
-----------------------------------
-요약: ${log.summary}
-----------------------------------
+상담 일시: ${new Date().toLocaleString()}
 시설명: ${userSettings.facilityName}
 담당자: ${userSettings.managerName}
-----------------------------------
-기록 생성: StayAI Manager (Direct Response)
+
+고객 정보:
+- 단체명: ${selections.orgName || '개인'}
+- 연락처: ${selections.phone || '미입력'}
+- 방문예정일: ${selections.visitDate || '미정'}
+
+상담 내역:
+- 방문 대상: ${selections.target || '미지정'}
+- 인원 규모: ${selections.count || '미지정'}
+- 숙박 일정: ${accLabel || '미지정'}
+- 활동 유형: ${selections.activities.join(', ') || '없음'}
+- 식사 옵션: ${selections.meals.join(', ') || '없음'}
+
+특이사항:
+${selections.specialRequests || '없음'}
     `.trim();
 
-    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    const dateStr = log.timestamp.split(' ')[0].replace(/\-/g, '').replace(/ /g, '');
-    const cleanPhone = (selections.phone || 'unknown').replace(/[^0-9]/g, '');
-    link.download = `상담기록_${selections.orgName || cleanPhone}_${dateStr}.txt`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    try {
+      // 클립보드에 복사
+      await navigator.clipboard.writeText(reportContent);
+      
+      // 지정된 구글 문서 링크 열기
+      window.open(TARGET_DOC_URL, '_blank');
+      
+      setDocSyncStatus('done');
+      setTimeout(() => setDocSyncStatus('idle'), 3000);
+    } catch (error) {
+      console.error('Clipboard copy failed', error);
+      alert('내용 복사에 실패했습니다. 브라우저 설정을 확인해주세요.');
+      setDocSyncStatus('idle');
+    }
   };
 
   const handleSave = () => {
@@ -117,10 +122,18 @@ ${selections.specialRequests || '없음'}
     };
     
     onSaveLog(newLog);
-    setLastSavedLog(newLog);
     setIsSaved(true);
     
-    downloadAsTxt(newLog);
+    // 로컬 TXT 다운로드
+    const content = summary + "\n" + newLog.details.specialRequests;
+    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `상담기록_${selections.orgName || selections.phone}.txt`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
     
     setTimeout(() => {
       setIsSaved(false);
@@ -159,7 +172,7 @@ ${selections.specialRequests || '없음'}
     window.open('https://calendar.google.com', '_blank', 'noopener,noreferrer');
   };
 
-  const isComplete = selections.count && (selections.activities.length > 0 || selections.accommodation);
+  const canSave = selections.phone || selections.orgName;
 
   return (
     <div className="grid grid-cols-1 xl:grid-cols-3 gap-8 pb-20">
@@ -195,7 +208,6 @@ ${selections.specialRequests || '없음'}
           </div>
 
           <div className="space-y-10">
-            {/* 상단 주요 정보 그리드 - 번호를 00번으로 최상단 배치 */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
               <div>
                 <p className="text-sm font-bold text-slate-500 mb-4 uppercase tracking-widest flex items-center">
@@ -265,7 +277,7 @@ ${selections.specialRequests || '없음'}
               <div>
                 <p className="text-sm font-bold text-slate-500 mb-4 uppercase tracking-widest flex items-center">
                   <span className="w-6 h-6 bg-blue-600 rounded-lg flex items-center justify-center mr-2 text-[10px] text-white font-black">04</span>
-                  인원 규모 (Count)
+                  인원 규모
                 </p>
                 <div className="flex flex-wrap gap-2">
                   {OPTIONS.count.map(val => (
@@ -286,7 +298,7 @@ ${selections.specialRequests || '없음'}
               <div>
                 <p className="text-sm font-bold text-slate-500 mb-4 uppercase tracking-widest flex items-center">
                   <span className="w-6 h-6 bg-blue-600 rounded-lg flex items-center justify-center mr-2 text-[10px] text-white font-black">05</span>
-                  숙박 일정 (Accommodation)
+                  숙박 일정
                 </p>
                 <div className="flex flex-wrap gap-2 mb-3">
                   {OPTIONS.accommodation.map(val => (
@@ -303,22 +315,13 @@ ${selections.specialRequests || '없음'}
                     </button>
                   ))}
                 </div>
-                {selections.accommodation === '기타(직접 입력)' && (
-                  <input 
-                    type="text" 
-                    placeholder="숙박 기간을 직접 입력하세요 (예: 4박 5일)" 
-                    className="w-full px-4 py-2 bg-slate-50 border border-slate-100 rounded-xl text-xs outline-none focus:ring-2 focus:ring-emerald-500 transition-all animate-in slide-in-from-top-2"
-                    value={selections.customAccommodation}
-                    onChange={(e) => setSelections({...selections, customAccommodation: e.target.value})}
-                  />
-                )}
               </div>
             </div>
 
             <div>
               <p className="text-sm font-bold text-slate-500 mb-4 uppercase tracking-widest flex items-center">
                 <span className="w-6 h-6 bg-blue-600 rounded-lg flex items-center justify-center mr-2 text-[10px] text-white font-black">06</span>
-                활동 유형 (Activity - 다중 선택)
+                활동 유형 (다중 선택)
               </p>
               <div className="flex flex-wrap gap-2.5">
                 {OPTIONS.activity.map(val => (
@@ -327,8 +330,8 @@ ${selections.specialRequests || '없음'}
                     onClick={() => toggleArrayOption('activities', val)}
                     className={`px-6 py-3.5 rounded-2xl text-sm font-bold transition-all border-2 ${
                       selections.activities.includes(val)
-                        ? 'bg-emerald-600 text-white border-emerald-600 shadow-lg shadow-emerald-100 scale-[1.02]' 
-                        : 'bg-slate-50 text-slate-600 border-transparent hover:border-slate-200 hover:bg-white'
+                        ? 'bg-emerald-600 text-white border-emerald-600 shadow-lg' 
+                        : 'bg-slate-50 text-slate-600 border-transparent hover:border-slate-200'
                     }`}
                   >
                     {val}
@@ -340,7 +343,7 @@ ${selections.specialRequests || '없음'}
             <div>
               <p className="text-sm font-bold text-slate-500 mb-4 uppercase tracking-widest flex items-center">
                 <span className="w-6 h-6 bg-blue-600 rounded-lg flex items-center justify-center mr-2 text-[10px] text-white font-black">07</span>
-                식사 옵션 (Meals - 다중 선택)
+                식사 옵션 (다중 선택)
               </p>
               <div className="flex flex-wrap gap-2.5">
                 {OPTIONS.meals.map(val => (
@@ -349,8 +352,8 @@ ${selections.specialRequests || '없음'}
                     onClick={() => toggleArrayOption('meals', val)}
                     className={`px-6 py-3.5 rounded-2xl text-sm font-bold transition-all border-2 ${
                       selections.meals.includes(val)
-                        ? 'bg-emerald-600 text-white border-emerald-600 shadow-lg shadow-emerald-100 scale-[1.02]' 
-                        : 'bg-slate-50 text-slate-600 border-transparent hover:border-slate-200 hover:bg-white'
+                        ? 'bg-emerald-600 text-white border-emerald-600 shadow-lg' 
+                        : 'bg-slate-50 text-slate-600 border-transparent hover:border-slate-200'
                     }`}
                   >
                     {val}
@@ -362,10 +365,10 @@ ${selections.specialRequests || '없음'}
             <div>
               <p className="text-sm font-bold text-slate-500 mb-4 uppercase tracking-widest flex items-center">
                 <span className="w-6 h-6 bg-blue-600 rounded-lg flex items-center justify-center mr-2 text-[10px] text-white font-black">08</span>
-                고객 요청사항 (Special Requests)
+                고객 요청사항
               </p>
               <textarea 
-                placeholder="상담 중 파악한 특이사항이나 추가 요청을 기록하세요..."
+                placeholder="추가 요청을 기록하세요..."
                 className="w-full h-32 px-5 py-4 bg-slate-50 border border-slate-100 rounded-3xl text-sm outline-none focus:ring-2 focus:ring-emerald-500 transition-all font-medium resize-none"
                 value={selections.specialRequests}
                 onChange={(e) => setSelections({...selections, specialRequests: e.target.value})}
@@ -406,17 +409,10 @@ ${selections.specialRequests || '없음'}
               </div>
             )}
             
-            {selections.target && (
+            {(selections.target || selections.count) && (
               <div className="animate-in fade-in slide-in-from-right-4 duration-500">
-                <p className="text-[10px] text-slate-500 font-bold uppercase tracking-[0.25em] mb-1">👤 방문 대상</p>
-                <p className="text-xl font-black text-emerald-400">{selections.target}</p>
-              </div>
-            )}
-
-            {selections.count && (
-              <div className="animate-in fade-in slide-in-from-right-4 duration-500">
-                <p className="text-[10px] text-slate-500 font-bold uppercase tracking-[0.25em] mb-1">👥 인원 규모</p>
-                <p className="text-xl font-black text-emerald-400">{selections.count}</p>
+                <p className="text-[10px] text-slate-500 font-bold uppercase tracking-[0.25em] mb-1">👥 규모 및 대상</p>
+                <p className="text-xl font-black text-emerald-400">{selections.target} {selections.count}</p>
               </div>
             )}
 
@@ -431,7 +427,7 @@ ${selections.specialRequests || '없음'}
 
             {selections.activities.length > 0 && (
               <div className="animate-in fade-in slide-in-from-right-4 duration-500">
-                <p className="text-[10px] text-slate-500 font-bold uppercase tracking-[0.25em] mb-1">🎨 선택 활동 ({selections.activities.length})</p>
+                <p className="text-[10px] text-slate-500 font-bold uppercase tracking-[0.25em] mb-1">🎨 선택 활동</p>
                 <div className="flex flex-wrap gap-1 mt-1">
                   {selections.activities.map(a => (
                     <span key={a} className="bg-indigo-500/20 text-indigo-300 text-[10px] px-2 py-0.5 rounded-md border border-indigo-500/30">{a}</span>
@@ -439,28 +435,10 @@ ${selections.specialRequests || '없음'}
                 </div>
               </div>
             )}
-
-            {selections.meals.length > 0 && (
-              <div className="animate-in fade-in slide-in-from-right-4 duration-500">
-                <p className="text-[10px] text-slate-500 font-bold uppercase tracking-[0.25em] mb-1">🍴 식사 옵션 ({selections.meals.length})</p>
-                <div className="flex flex-wrap gap-1 mt-1">
-                  {selections.meals.map(m => (
-                    <span key={m} className="bg-amber-500/20 text-amber-300 text-[10px] px-2 py-0.5 rounded-md border border-amber-500/30">{m}</span>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {selections.specialRequests && (
-              <div className="animate-in fade-in slide-in-from-right-4 duration-500">
-                <p className="text-[10px] text-slate-500 font-bold uppercase tracking-[0.25em] mb-1">📝 요청사항</p>
-                <p className="text-sm font-bold text-slate-300 line-clamp-2">{selections.specialRequests}</p>
-              </div>
-            )}
             
-            {!Object.values(selections).some(v => Array.isArray(v) ? v.length > 0 : v) && (
+            {!canSave && (
               <div className="flex flex-col items-center justify-center h-64 text-slate-600 text-center space-y-4">
-                <div className="text-5xl opacity-20 filter grayscale">☎️</div>
+                <div className="text-5xl opacity-20">☎️</div>
                 <div className="space-y-1 text-sm font-medium">
                   <p>상담을 시작하고</p>
                   <p>정보를 입력하세요.</p>
@@ -470,86 +448,88 @@ ${selections.specialRequests || '없음'}
           </div>
 
           <div className="space-y-4 pt-8 border-t border-white/10">
-            {!isSaved ? (
-              <button 
-                onClick={handleSave}
-                disabled={!isComplete}
-                className={`w-full py-5 rounded-[24px] font-black text-lg transition-all flex items-center justify-center ${
-                  isComplete 
-                    ? 'bg-indigo-600 hover:bg-indigo-500 shadow-xl shadow-indigo-900/40 text-white active:scale-95' 
-                    : 'bg-white/5 text-slate-600 cursor-not-allowed border border-white/5'
-                }`}
-              >
-                상담 완료 및 요약 저장 (TXT)
-              </button>
-            ) : (
-              <div className="space-y-3 animate-in zoom-in duration-300">
-                <div className="w-full py-5 bg-emerald-500 text-white rounded-[24px] font-black text-lg flex items-center justify-center shadow-lg shadow-emerald-900/40">
+            <div className="grid grid-cols-1 gap-3">
+               <button 
+                  onClick={syncToGoogleDocs}
+                  disabled={!canSave || docSyncStatus === 'copying'}
+                  className={`w-full py-4 rounded-[20px] font-bold text-sm transition-all flex items-center justify-center space-x-2 ${
+                    canSave && docSyncStatus !== 'copying'
+                      ? 'bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-900/40 active:scale-95' 
+                      : 'bg-white/5 text-slate-600 cursor-not-allowed'
+                  }`}
+                >
+                  <span className="text-lg">{docSyncStatus === 'copying' ? '⌛' : docSyncStatus === 'done' ? '✓' : '📄'}</span>
+                  <span>{docSyncStatus === 'copying' ? '복사 중...' : docSyncStatus === 'done' ? '복사 완료! Docs 여는 중' : '브리핑 복사 및 구글 Docs 열기'}</span>
+                </button>
+
+              {!isSaved ? (
+                <button 
+                  onClick={handleSave}
+                  disabled={!canSave}
+                  className={`w-full py-5 rounded-[24px] font-black text-lg transition-all flex items-center justify-center ${
+                    canSave 
+                      ? 'bg-indigo-600 hover:bg-indigo-500 shadow-xl shadow-indigo-900/40 text-white active:scale-95' 
+                      : 'bg-white/5 text-slate-600 cursor-not-allowed border border-white/5'
+                  }`}
+                >
+                  상담 완료 및 TXT 저장
+                </button>
+              ) : (
+                <div className="w-full py-5 bg-emerald-500 text-white rounded-[24px] font-black text-lg flex items-center justify-center shadow-lg animate-in zoom-in duration-300">
                   <svg className="w-6 h-6 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" />
                   </svg>
                   저장 및 다운로드 완료
                 </div>
-                <p className="text-center text-[10px] text-emerald-400 font-bold uppercase animate-pulse">상담 일지가 생성되었습니다.</p>
-              </div>
-            )}
-            <p className="text-center text-[10px] text-slate-500 font-bold uppercase tracking-widest">Global Log & Sheets Sync Active</p>
+              )}
+            </div>
+            <p className="text-center text-[10px] text-slate-500 font-bold uppercase tracking-widest italic">※ 구글 Docs가 열리면 Ctrl+V로 내용을 붙여넣으세요.</p>
           </div>
         </div>
 
         <div className="bg-white p-8 rounded-[32px] border border-slate-100 shadow-sm text-center">
-          <p className="text-xs text-slate-400 font-medium tracking-tight">통화 기록 도우미 v1.4 • 자동 문서화 지원</p>
+          <p className="text-xs text-slate-400 font-medium tracking-tight">통화 기록 도우미 v1.7 • G-Docs 연동</p>
         </div>
       </div>
 
       <Modal 
         isOpen={isGuideModalOpen} 
         onClose={() => setIsGuideModalOpen(false)} 
-        title="상담 가이드 관리 (Counseling Guide)"
+        title="상담 가이드 관리"
       >
         <div className="space-y-6">
           <div className="bg-indigo-50 p-6 rounded-3xl border border-indigo-100">
             <p className="text-sm text-indigo-800 font-semibold mb-1">💡 가이드 활용 팁</p>
-            <p className="text-xs text-indigo-600 leading-relaxed">
-              상담 중 자주 안내해야 하는 사항이나 누락하기 쉬운 필수 확인 사항을 등록해두세요. 
-            </p>
+            <p className="text-xs text-indigo-600">안내 사항이나 필수 확인 사항을 등록해두세요.</p>
           </div>
           
           <div className="space-y-3">
-            <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">현재 등록된 가이드</h4>
             {(userSettings.guides || []).map((guide, idx) => (
-              <div key={idx} className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100 group hover:border-indigo-200 hover:bg-white transition-all">
-                <div className="flex items-center flex-1 pr-4">
-                  <span className="w-6 h-6 bg-white rounded-full flex items-center justify-center text-[10px] font-bold text-indigo-500 border border-indigo-100 mr-3 shadow-sm">{idx + 1}</span>
-                  <p className="text-sm text-slate-700 font-medium leading-snug">{guide}</p>
-                </div>
+              <div key={idx} className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                <p className="text-sm text-slate-700 font-medium">{guide}</p>
                 <button 
                   onClick={() => handleRemoveGuide(idx)}
-                  className="text-slate-300 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100 p-1"
+                  className="text-slate-300 hover:text-red-500 transition-colors p-1"
                 >
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                  </svg>
+                  &times;
                 </button>
               </div>
             ))}
           </div>
 
           <div className="pt-6 border-t border-slate-100">
-            <label className="block text-xs font-bold text-slate-400 mb-2 uppercase tracking-widest">새 가이드 추가</label>
             <div className="flex gap-2">
               <input 
                 type="text" 
-                placeholder="안내할 내용을 입력하세요"
-                className="flex-1 px-5 py-3.5 bg-slate-50 border border-slate-100 rounded-2xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all text-sm font-medium"
+                placeholder="새 가이드 입력"
+                className="flex-1 px-5 py-3.5 bg-slate-50 border border-slate-100 rounded-2xl outline-none text-sm font-medium"
                 value={newGuideText}
                 onChange={(e) => setNewGuideText(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && handleAddGuide()}
               />
               <button 
                 onClick={handleAddGuide}
-                disabled={!newGuideText.trim()}
-                className="px-6 py-3.5 bg-indigo-600 text-white font-bold rounded-2xl hover:bg-indigo-700 shadow-md active:scale-95"
+                className="px-6 py-3.5 bg-indigo-600 text-white font-bold rounded-2xl"
               >
                 추가
               </button>
@@ -565,9 +545,6 @@ ${selections.specialRequests || '없음'}
         .custom-scrollbar::-webkit-scrollbar-thumb {
           background: rgba(255, 255, 255, 0.1);
           border-radius: 10px;
-        }
-        input[type="date"]::-webkit-calendar-picker-indicator {
-          cursor: pointer;
         }
       `}</style>
     </div>

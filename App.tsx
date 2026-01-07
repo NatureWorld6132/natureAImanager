@@ -25,6 +25,7 @@ const DEFAULT_SETTINGS: UserSettings = {
     '식사 알러지 여부 사전 파악 권장'
   ],
   googleSheetsUrl: '', 
+  googleDocsUrl: '',
   googleSpreadsheetUrl: TARGET_SHEET_URL
 };
 
